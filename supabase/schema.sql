@@ -23,6 +23,11 @@ create table if not exists decisions (
   created_at timestamptz default now()
 );
 
+-- Row level security ON with no policies: the public anon key can't read or write
+-- these tables. The server uses the service role key, which bypasses RLS.
+alter table mandates enable row level security;
+alter table decisions enable row level security;
+
 insert into mandates (id, owner, weekly_budget, per_order_cap, ask_above, allowed_categories, max_qty_per_item, expires_at)
 values ('demo', 'Sara — Hackney Vintage', 500, 300, 200, '{denim,outerwear}', 10, '2026-12-31T23:59:59Z')
 on conflict (id) do nothing;
