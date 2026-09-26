@@ -26,6 +26,16 @@ describe.skipIf(!process.env.LIVE || !process.env.SHOPIFY_SHOP)("live Shopify", 
     expect(top.variantId).toMatch(/^gid:\/\/shopify\/ProductVariant\//);
   });
 
+  it("finds the store's own snowboards with live prices, excluding drafts/archived/gift cards", async () => {
+    const hits = await searchProducts("compare snowboards");
+    console.log("snowboards:", hits.map((p) => `${p.title} £${p.price}`));
+    expect(hits.length).toBeGreaterThan(5);
+    expect(hits.every((p) => /snowboard/i.test(`${p.title} ${p.category}`))).toBe(true);
+    expect(hits.some((p) => /Draft|Archived/.test(p.title))).toBe(false);
+    const prices = await getLivePrices(hits.map((p) => p.variantId));
+    expect(hits.every((p) => prices[p.variantId] === p.price)).toBe(true);
+  });
+
   it("the 501 description carries the injection text", async () => {
     const [top] = await searchProducts("Restock vintage 501 jeans");
     console.log("501 description:", top.description);
