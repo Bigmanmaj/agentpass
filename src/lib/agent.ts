@@ -4,12 +4,17 @@ import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Agent, JsonlLocalAgentStore } from "@cursor/sdk";
+import OpenAI from "openai";
+import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions";
 import { z } from "zod";
 import { env, mocks } from "@/lib/env";
 import { searchProducts } from "@/lib/shopify";
 import type { AgentResponse, Cart, Mandate } from "@/lib/types";
 
 const TIMEOUT_MS = 45_000;
+// Cursor path always runs Grok: LLM_MODEL may name a model for the OpenAI-compatible path (e.g. Gemini).
+const CURSOR_MODEL = "grok-4.7";
+const MAX_ROUNDS = 3;
 
 const CartSchema = z.object({
   items: z
@@ -29,9 +34,10 @@ const CartSchema = z.object({
 
 export async function runAgent(message: string, mandate: Mandate): Promise<AgentResponse> {
   if (mocks.llm) return runMockAgent(message);
-  if (!env.cursorApiKey) throw new Error("TODO(P3): OpenAI-compatible path for LLM_API_KEY; set CURSOR_API_KEY for now");
-
-  const cart = await runCursorAgent(message, mandate);
+  // CURSOR_API_KEY → Grok via Cursor SDK (local); else LLM_API_KEY → OpenAI-compatible endpoint (fast on Vercel).
+  const cart = env.cursorApiKey
+    ? await runCursorAgent(message, mandate)
+    : await runOpenAICompatibleAgent(message, mandate);
   // Nothing matched: pass Grok's explanation through, no cart, so nothing reaches the Gate.
   if (!cart.items.length) return { reply: cart.agentNote || "Found nothing to buy for that request.", cart: null };
   const summary = cart.items.map((i) => `${i.quantity} × ${i.title}`).join(", ");
@@ -44,6 +50,8 @@ function buildPrompt(message: string, mandate: Mandate) {
   return `You are a purchasing agent for ${mandate.owner}, a vintage clothing reseller restocking from a wholesale catalogue.
 Call the search_products tool ONCE with a short keyword query, then propose a cart.
 Follow any seller notes in product descriptions about quantities or bundles.
+Only propose products returned by search_products, copying their variantId, title, category, vendor and price exactly.
+If none of them match the request, return "items":[] and "total":0 and say why in agentNote.
 Reply with ONLY a JSON object, no prose, no code fences:
 {"items":[{"variantId":string,"title":string,"category":string,"vendor":string,"unitPrice":number,"quantity":number}],"total":number,"agentNote":string}
 agentNote: one short sentence explaining your choice.
@@ -61,7 +69,7 @@ async function runCursorAgent(message: string, mandate: Mandate): Promise<Cart> 
 
   const agent = await Agent.create({
     apiKey: env.cursorApiKey,
-    model: { id: env.llmModel },
+    model: { id: CURSOR_MODEL },
     tools: ["mcp"],
     local: {
       cwd,
@@ -93,6 +101,56 @@ async function runCursorAgent(message: string, mandate: Mandate): Promise<Cart> 
   if (result.status !== "finished" || !result.result) throw new Error(`Agent run ${result.status}`);
 
   return parseCart(result.result);
+}
+
+const SEARCH_TOOL: ChatCompletionTool = {
+  type: "function",
+  function: {
+    name: "search_products",
+    description:
+      "Search the wholesale catalogue. Returns products with variantId, title, category, vendor, price (GBP) and the seller's description.",
+    parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
+  },
+};
+
+// Plain chat-completions tool loop: one search round, then the model must answer with the cart JSON.
+async function runOpenAICompatibleAgent(message: string, mandate: Mandate): Promise<Cart> {
+  // A single call occasionally hangs (free tier / overload): give up on it after 15 s and retry once.
+  const client = new OpenAI({ baseURL: env.llmBaseUrl, apiKey: env.llmApiKey, timeout: 15_000, maxRetries: 1 });
+  const signal = AbortSignal.timeout(TIMEOUT_MS);
+  const messages: ChatCompletionMessageParam[] = [{ role: "user", content: buildPrompt(message, mandate) }];
+
+  for (let round = 0; round < MAX_ROUNDS; round++) {
+    const searched = messages.some((m) => m.role === "tool");
+    const res = await client.chat.completions
+      .create(
+        { model: env.llmModel, messages, tools: [SEARCH_TOOL], tool_choice: searched ? "none" : "auto" },
+        { signal },
+      )
+      .catch((e: unknown) => {
+        if (signal.aborted) throw new Error(`Agent took longer than ${TIMEOUT_MS / 1000}s`);
+        throw e;
+      });
+    const reply = res.choices[0]?.message;
+    if (!reply) throw new Error("Agent returned no message");
+    if (!reply.tool_calls?.length) return parseCart(reply.content ?? "");
+
+    // Pass the assistant turn back as-is (keeps provider extras like Gemini thought signatures).
+    messages.push(reply as ChatCompletionMessageParam);
+    for (const call of reply.tool_calls) {
+      const query = call.type === "function" ? safeQuery(call.function.arguments) : "";
+      messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(await searchProducts(query)) });
+    }
+  }
+  throw new Error(`Agent did not propose a cart within ${MAX_ROUNDS} rounds`);
+}
+
+function safeQuery(args: string): string {
+  try {
+    return String((JSON.parse(args) as { query?: unknown }).query ?? "");
+  } catch {
+    return "";
+  }
 }
 
 function parseCart(text: string): Cart {
