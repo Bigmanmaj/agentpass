@@ -22,8 +22,7 @@ const CartSchema = z.object({
         unitPrice: z.number(),
         quantity: z.number().int().positive(),
       }),
-    )
-    .min(1),
+    ),
   total: z.number(),
   agentNote: z.string(),
 });
@@ -33,6 +32,8 @@ export async function runAgent(message: string, mandate: Mandate): Promise<Agent
   if (!env.cursorApiKey) throw new Error("TODO(P3): OpenAI-compatible path for LLM_API_KEY; set CURSOR_API_KEY for now");
 
   const cart = await runCursorAgent(message, mandate);
+  // Nothing matched: pass Grok's explanation through, no cart, so nothing reaches the Gate.
+  if (!cart.items.length) return { reply: cart.agentNote || "Found nothing to buy for that request.", cart: null };
   const summary = cart.items.map((i) => `${i.quantity} × ${i.title}`).join(", ");
   return { reply: `Proposing ${summary}. ${cart.agentNote ?? ""}`.trim(), cart };
 }
@@ -51,9 +52,10 @@ Request: ${message}`;
 }
 
 async function runCursorAgent(message: string, mandate: Mandate): Promise<Cart> {
-  // The SDK keeps local history on disk; the default location fails on Windows, so give it a temp dir.
+  // The SDK keeps local history on disk; the default location fails on Windows, so we choose it:
+  // inside the project locally (git-ignored), the temp dir on Vercel (the only writable place there).
   // cwd is an empty folder and only our tool is enabled: the agent can't read files or run commands.
-  const root = path.join(tmpdir(), "agentpass-agent");
+  const root = process.env.VERCEL ? path.join(tmpdir(), "agentpass-agent") : path.join(process.cwd(), ".agent-state");
   const cwd = path.join(root, "workspace");
   mkdirSync(cwd, { recursive: true });
 

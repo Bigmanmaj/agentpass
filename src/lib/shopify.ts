@@ -71,8 +71,9 @@ type ProductNode = {
 
 export async function searchProducts(query: string): Promise<Product[]> {
   if (mocks.shopify) return rank(query, catalog);
+  // Whole active catalogue (not just the seeded demo products); ranked locally below.
   const data = await gql<{ products: { nodes: ProductNode[] } }>(
-    `{ products(first: 50, query: "tag:agentpass-seed") {
+    `{ products(first: 100, query: "status:active") {
         nodes { id title productType vendor description variants(first: 1) { nodes { id price } } }
       } }`,
   );
