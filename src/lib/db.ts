@@ -113,6 +113,25 @@ export async function markOrdered(decisionId: string, orderId: string): Promise<
   return data.length === 1;
 }
 
+// After the Shopify order exists: swap the "pending" placeholder set by markOrdered for the real id.
+// Only touches rows still marked "pending", so it can never overwrite a real order id.
+export async function setOrderId(decisionId: string, orderId: string): Promise<boolean> {
+  if (mocks.db) {
+    const d = memory.find((m) => m.id === decisionId);
+    if (!d || d.orderId !== "pending") return false;
+    d.orderId = orderId;
+    return true;
+  }
+  const { data, error } = await sb()
+    .from("decisions")
+    .update({ order_id: orderId })
+    .eq("id", decisionId)
+    .eq("order_id", "pending")
+    .select("id");
+  if (error) throw new Error(`Supabase setOrderId: ${error.message}`);
+  return data.length === 1;
+}
+
 export async function listDecisions(): Promise<DecisionRow[]> {
   if (mocks.db) return [...memory].reverse();
   const { data, error } = await sb().from("decisions").select("*").order("created_at", { ascending: false }).limit(100);

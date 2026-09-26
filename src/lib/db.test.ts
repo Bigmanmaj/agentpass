@@ -1,6 +1,8 @@
 // OWNER: P1. Runs in mock mode (no SUPABASE_URL in tests); row mappers cover the Supabase shape.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DEMO_MANDATE, getMandate, logDecision, markOrdered, spentThisWeek, toDecisionRow, toMandate } from "./db";
+import {
+  DEMO_MANDATE, getMandate, listDecisions, logDecision, markOrdered, setOrderId, spentThisWeek, toDecisionRow, toMandate,
+} from "./db";
 
 const cart = { items: [], total: 0 };
 const log = (mandateId: string, total: number) =>
@@ -35,6 +37,21 @@ describe("db (mock mode)", () => {
 
   it("markOrdered returns false for an unknown decision", async () => {
     expect(await markOrdered("does-not-exist", "o1")).toBe(false);
+  });
+
+  it("setOrderId replaces 'pending' with the real Shopify order id", async () => {
+    const id = await log("set-test", 160);
+    await markOrdered(id, "pending");
+    expect(await setOrderId(id, "gid://shopify/DraftOrder/1")).toBe(true);
+    expect((await listDecisions()).find((d) => d.id === id)?.orderId).toBe("gid://shopify/DraftOrder/1");
+  });
+
+  it("setOrderId never overwrites a real order id or a decision not marked pending", async () => {
+    const done = await log("set-test-2", 160);
+    await markOrdered(done, "real-order");
+    expect(await setOrderId(done, "other")).toBe(false);
+    expect(await setOrderId(await log("set-test-3", 160), "other")).toBe(false);
+    expect((await listDecisions()).find((d) => d.id === done)?.orderId).toBe("real-order");
   });
 });
 

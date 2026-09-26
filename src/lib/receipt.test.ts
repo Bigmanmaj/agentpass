@@ -1,5 +1,5 @@
 // OWNER: P1
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { sign, verify } from "./receipt";
 import { POST as approve } from "@/app/api/approve/route";
 
@@ -33,5 +33,35 @@ describe("receipt", () => {
       expect(res.status).toBe(403);
       expect((await res.json()).error).toMatch(/approval token/i);
     }
+  });
+});
+
+describe("production secret guard", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("refuses to sign in production when AGENTPASS_SECRET is missing", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AGENTPASS_SECRET", "");
+    await expect(sign("receipt", "demo", cart, 160, "d1")).rejects.toThrow(/AGENTPASS_SECRET/);
+  });
+
+  it("refuses a short secret in production", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AGENTPASS_SECRET", "too-short");
+    await expect(sign("receipt", "demo", cart, 160, "d1")).rejects.toThrow(/AGENTPASS_SECRET/);
+  });
+
+  it("signs and verifies in production with a proper secret", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AGENTPASS_SECRET", "a".repeat(64));
+    const token = await sign("receipt", "demo", cart, 160, "d1");
+    expect((await verify(token, "receipt")).decisionId).toBe("d1");
+  });
+
+  it("a token signed with the public default secret is rejected in production", async () => {
+    const forged = await sign("receipt", "demo", cart, 160, "d1"); // dev mode: default secret
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AGENTPASS_SECRET", "a".repeat(64));
+    await expect(verify(forged, "receipt")).rejects.toThrow();
   });
 });
