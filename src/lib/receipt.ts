@@ -3,7 +3,15 @@ import { SignJWT, jwtVerify } from "jose";
 import { env } from "@/lib/env";
 import type { Cart } from "@/lib/types";
 
-const key = () => new TextEncoder().encode(env.agentpassSecret);
+// The dev default secret is public (it's in the repo). In production, refuse to sign or verify
+// without a real secret, so a missing env var fails closed instead of accepting forged receipts.
+// Read at call time, not import time, so the check always sees the live env.
+const key = () => {
+  const secret = process.env.AGENTPASS_SECRET;
+  if (process.env.NODE_ENV === "production" && (!secret || secret.length < 32))
+    throw new Error("AGENTPASS_SECRET must be set (32+ characters) in production");
+  return new TextEncoder().encode(secret || env.agentpassSecret);
+};
 
 export type TokenPayload = {
   kind: "receipt" | "approval";
