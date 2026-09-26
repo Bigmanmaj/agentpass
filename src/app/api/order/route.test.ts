@@ -1,11 +1,20 @@
-// OWNER: P2. Full mock-mode flow: agent -> gate -> order, plus receipt tampering.
-import { describe, expect, it } from "vitest";
-import { POST as agent } from "@/app/api/agent/route";
-import { POST as gate } from "@/app/api/gate/route";
-import { POST as order } from "@/app/api/order/route";
-import type { AgentResponse, Cart, GateResponse } from "@/lib/types";
+// OWNER: P2. Full mock-mode flow: agent -> gate -> approve -> order, plus receipt tampering/replay.
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { AgentResponse, ApproveResponse, Cart, GateResponse } from "@/lib/types";
 
-const post = (handler: (req: Request) => Promise<Response>, body: unknown) =>
+type Handler = (req: Request) => Promise<Response>;
+let agent: Handler, gate: Handler, approve: Handler, order: Handler;
+
+// Fresh modules per test so the in-memory decision log (and weekly spend) starts at zero.
+beforeEach(async () => {
+  vi.resetModules();
+  agent = (await import("@/app/api/agent/route")).POST;
+  gate = (await import("@/app/api/gate/route")).POST;
+  approve = (await import("@/app/api/approve/route")).POST;
+  order = (await import("@/app/api/order/route")).POST;
+});
+
+const post = (handler: Handler, body: unknown) =>
   handler(new Request("http://test", { method: "POST", body: typeof body === "string" ? body : JSON.stringify(body) }));
 
 async function runScenario(message: string) {
@@ -30,10 +39,23 @@ describe("order flow (mock mode)", () => {
     expect((await post(order, { cart: tampered, receipt: g.receipt })).status).toBe(403);
   });
 
+  it("rejects a second order with the same receipt", async () => {
+    const { cart, g } = await runScenario("Restock 4 denim jackets");
+    expect((await post(order, { cart, receipt: g.receipt })).status).toBe(200);
+    expect((await post(order, { cart, receipt: g.receipt })).status).toBe(409);
+  });
+
   it("scenario 2: 6 denim jackets -> ASK_HUMAN, no receipt", async () => {
     const { g } = await runScenario("Restock 6 denim jackets");
     expect(g.decision).toBe("ASK_HUMAN");
     expect(g.receipt).toBeUndefined();
+  });
+
+  it("scenario 2 approved: human yes -> receipt -> order", async () => {
+    const { cart, g } = await runScenario("Restock 6 denim jackets");
+    const a = (await (await post(approve, { approvalToken: g.approvalToken, approved: true })).json()) as ApproveResponse;
+    expect(a.receipt).toBeTruthy();
+    expect((await post(order, { cart, receipt: a.receipt })).status).toBe(200);
   });
 
   it("scenario 3: injected 501 description -> BLOCK", async () => {

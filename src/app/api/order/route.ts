@@ -1,6 +1,7 @@
 // OWNER: P2. Creates the Shopify draft order ONLY with a valid receipt for this exact cart.
 import { cartHash, verify } from "@/lib/receipt";
-import { createDraftOrder } from "@/lib/shopify";
+import { createDraftOrder, deleteDraftOrder } from "@/lib/shopify";
+import { markOrdered } from "@/lib/db";
 import { track } from "@/lib/analytics";
 import type { OrderRequest } from "@/lib/types";
 
@@ -21,7 +22,13 @@ export async function POST(req: Request) {
 
   try {
     const order = await createDraftOrder(cart, receipt);
-    await track("order_created", { orderId: order.orderId, total: payload.total, mandateId: payload.mandateId });
+    // One order per receipt: if the decision was already used, undo the duplicate draft.
+    if (!(await markOrdered(payload.decisionId, order.orderId))) {
+      await deleteDraftOrder(order.orderId);
+      await track("order_replay_blocked", { decisionId: payload.decisionId, mandateId: payload.mandateId });
+      return Response.json({ error: "Receipt already used" }, { status: 409 });
+    }
+    await track("order_created", { orderId: order.orderId, total: payload.total, mandateId: payload.mandateId, human: !!payload.human });
     return Response.json(order);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
