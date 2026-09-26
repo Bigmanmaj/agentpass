@@ -10,9 +10,24 @@ type UserError = { field?: string[] | null; message: string };
 
 let cachedToken: { value: string; expiresAt: number } | null = null;
 
+// Connection-level failures only: the request never reached Shopify, so retrying can't duplicate an order.
+const CONNECT_ERRORS = new Set(["ETIMEDOUT", "ECONNREFUSED", "ENETUNREACH", "EAI_AGAIN", "ENOTFOUND", "UND_ERR_CONNECT_TIMEOUT"]);
+
+async function shopifyFetch(url: string, init: RequestInit): Promise<Response> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fetch(url, init);
+    } catch (e) {
+      const code = (e as { cause?: { code?: string } }).cause?.code;
+      if (attempt >= 3 || !code || !CONNECT_ERRORS.has(code)) throw e;
+      await new Promise((r) => setTimeout(r, 300 * attempt));
+    }
+  }
+}
+
 async function getToken(): Promise<string> {
   if (cachedToken && Date.now() < cachedToken.expiresAt) return cachedToken.value;
-  const res = await fetch(`https://${env.shopifyShop}.myshopify.com/admin/oauth/access_token`, {
+  const res = await shopifyFetch(`https://${env.shopifyShop}.myshopify.com/admin/oauth/access_token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -33,7 +48,7 @@ async function getToken(): Promise<string> {
 }
 
 async function gql<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
-  const res = await fetch(
+  const res = await shopifyFetch(
     `https://${env.shopifyShop}.myshopify.com/admin/api/${env.shopifyApiVersion}/graphql.json`,
     {
       method: "POST",
@@ -66,29 +81,31 @@ type ProductNode = {
   productType: string;
   vendor: string;
   description: string;
+  isGiftCard: boolean;
   variants: { nodes: { id: string; price: string }[] };
 };
 
+// Whole active catalogue (seeded demo products + the store's own products), ranked locally so
+// results don't depend on Shopify's search syntax. Capped to keep the agent prompt small.
 export async function searchProducts(query: string): Promise<Product[]> {
   if (mocks.shopify) return rank(query, catalog);
-  // Whole active catalogue (not just the seeded demo products); ranked locally below.
   const data = await gql<{ products: { nodes: ProductNode[] } }>(
     `{ products(first: 100, query: "status:active") {
-        nodes { id title productType vendor description variants(first: 1) { nodes { id price } } }
+        nodes { id title productType vendor description isGiftCard variants(first: 1) { nodes { id price } } }
       } }`,
   );
   const live: Product[] = data.products.nodes
-    .filter((n) => n.variants.nodes.length)
+    .filter((n) => n.variants.nodes.length && !n.isGiftCard)
     .map((n) => ({
       id: n.id,
       variantId: n.variants.nodes[0].id,
       title: n.title,
-      category: n.productType.toLowerCase(),
+      category: n.productType.toLowerCase() || "uncategorized",
       vendor: n.vendor,
       price: Number(n.variants.nodes[0].price),
       description: n.description,
     }));
-  return rank(query, live);
+  return rank(query, live).slice(0, 25);
 }
 
 export async function getLivePrices(variantIds: string[]): Promise<Record<string, number>> {
