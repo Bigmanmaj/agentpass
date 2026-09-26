@@ -51,9 +51,10 @@ Request: ${message}`;
 }
 
 async function runCursorAgent(message: string, mandate: Mandate): Promise<Cart> {
-  // The SDK keeps local history on disk; the default location fails on Windows, so give it a temp dir.
+  // The SDK keeps local history on disk; the default location fails on Windows, so we choose it:
+  // inside the project locally (git-ignored), the temp dir on Vercel (the only writable place there).
   // cwd is an empty folder and only our tool is enabled: the agent can't read files or run commands.
-  const root = path.join(tmpdir(), "agentpass-agent");
+  const root = process.env.VERCEL ? path.join(tmpdir(), "agentpass-agent") : path.join(process.cwd(), ".agent-state");
   const cwd = path.join(root, "workspace");
   mkdirSync(cwd, { recursive: true });
 
