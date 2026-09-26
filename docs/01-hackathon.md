@@ -52,3 +52,15 @@ Luma adds: technical execution, product thinking, AI leverage & autonomy, real-w
 | Maria Luque Anguita | **Entrepreneurs First** | Pre-team / pre-idea founder investor | Sharp insight, founder-market fit, could this be a company |
 
 Sources: [Wassist raise](https://wassist.app/news/wassist-raises-1-1m-pre-seed/) · [Fleek](https://londonbusinessjournal.co.uk/2026/02/20/fleek-vintage-wholesale-marketplace-20m-second-hand-fashion-growth/) · [Jim Tattersall interview](https://studiorotate.com/thinking/interview-jim-tattersall-cto-founder) · [Episode 1 team](https://www.episode1.com/team)
+
+## Tech partners & perks (from the page)
+| Partner | Offer |
+|---|---|
+| Cursor | IDE / CLI / SDK; prize: 1–3 months Cursor Ultra |
+| Grok Bot | [Skill repo](https://github.com/adamanz/grok-bot-skill); no API credits listed |
+| Supabase | Credits on the day; top 3 get more credits |
+| Tavily | Credits provided by Greta |
+| Vercel | Deploys; swag for top teams |
+| Shopify, Commerce Layer, Recharge, Sanity, PostHog | Docs only, no specific perks |
+
+No sign-up links or coupon codes on the page — claim credits on site. What we use: see [08-team-plan.md](08-team-plan.md#credits-what-to-use-from-the-tech-partners-section).
