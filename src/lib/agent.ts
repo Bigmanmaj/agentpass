@@ -22,8 +22,7 @@ const CartSchema = z.object({
         unitPrice: z.number(),
         quantity: z.number().int().positive(),
       }),
-    )
-    .min(1),
+    ),
   total: z.number(),
   agentNote: z.string(),
 });
@@ -33,6 +32,8 @@ export async function runAgent(message: string, mandate: Mandate): Promise<Agent
   if (!env.cursorApiKey) throw new Error("TODO(P3): OpenAI-compatible path for LLM_API_KEY; set CURSOR_API_KEY for now");
 
   const cart = await runCursorAgent(message, mandate);
+  // Nothing matched: pass Grok's explanation through, no cart, so nothing reaches the Gate.
+  if (!cart.items.length) return { reply: cart.agentNote || "Found nothing to buy for that request.", cart: null };
   const summary = cart.items.map((i) => `${i.quantity} × ${i.title}`).join(", ");
   return { reply: `Proposing ${summary}. ${cart.agentNote ?? ""}`.trim(), cart };
 }
