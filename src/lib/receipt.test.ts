@@ -25,4 +25,13 @@ describe("receipt", () => {
     expect(p.decisionId).toBe("decision-2");
     expect(p.total).toBe(240);
   });
+
+  it("approve rejects a bad or wrong-kind token with 403, not 500", async () => {
+    const receipt = await sign("receipt", "demo", cart, 240, "decision-3"); // a receipt is not an approval token
+    for (const approvalToken of ["not-a-jwt", receipt]) {
+      const res = await approve(new Request("http://x", { method: "POST", body: JSON.stringify({ approvalToken, approved: true }) }));
+      expect(res.status).toBe(403);
+      expect((await res.json()).error).toMatch(/approval token/i);
+    }
+  });
 });

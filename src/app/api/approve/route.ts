@@ -5,7 +5,12 @@ import type { ApproveRequest, ApproveResponse } from "@/lib/types";
 
 export async function POST(req: Request) {
   const { approvalToken, approved } = (await req.json()) as ApproveRequest;
-  const p = await verify(approvalToken, "approval");
+  let p;
+  try {
+    p = await verify(approvalToken, "approval");
+  } catch {
+    return Response.json({ error: "Invalid or expired approval token" }, { status: 403 });
+  }
   await track("human_approval", { approved, total: p.total });
   if (!approved) return Response.json({ decision: "BLOCK" } satisfies ApproveResponse);
 
