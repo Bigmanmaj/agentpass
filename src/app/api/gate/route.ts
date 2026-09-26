@@ -18,7 +18,7 @@ export async function POST(req: Request) {
   await track("gate_decision", { decision: result.decision, total: result.checkedTotal, reasons: result.reasons });
 
   const res: GateResponse = { ...result, decisionId };
-  if (result.decision === "APPROVE") res.receipt = await sign("receipt", mandateId, cart, result.checkedTotal);
-  if (result.decision === "ASK_HUMAN") res.approvalToken = await sign("approval", mandateId, cart, result.checkedTotal);
+  if (result.decision === "APPROVE") res.receipt = await sign("receipt", mandateId, cart, result.checkedTotal, decisionId);
+  if (result.decision === "ASK_HUMAN") res.approvalToken = await sign("approval", mandateId, cart, result.checkedTotal, decisionId);
   return Response.json(res);
 }
