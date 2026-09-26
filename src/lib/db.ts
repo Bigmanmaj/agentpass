@@ -16,8 +16,21 @@ export const DEMO_MANDATE: Mandate = {
   expiresAt: "2026-12-31T23:59:59Z",
 };
 
+// Mutable copy used only in mock mode so the demo can change limits without Supabase.
+let mockMandate: Mandate = { ...DEMO_MANDATE };
+
+export function resetMockMandate() {
+  mockMandate = { ...DEMO_MANDATE };
+}
+
 type DecisionRow = { id: string; mandateId: string; cart: Cart; total: number; decision: Decision; reasons: string[]; orderId?: string; createdAt: string };
 const memory: DecisionRow[] = [];
+
+export type MandateLimitPatch = {
+  weeklyBudget: number;
+  perOrderCap: number;
+  askAbove: number;
+};
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const weekAgo = () => new Date(Date.now() - WEEK_MS).toISOString(); // rolling 7 days
@@ -53,9 +66,40 @@ export const toDecisionRow = (r: any): DecisionRow => ({
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 export async function getMandate(id: string): Promise<Mandate> {
-  if (mocks.db) return DEMO_MANDATE;
+  if (mocks.db) {
+    if (id !== mockMandate.id) throw new Error(`Mandate ${id} not found`);
+    return { ...mockMandate };
+  }
   const { data, error } = await sb().from("mandates").select("*").eq("id", id).maybeSingle();
   if (error) throw new Error(`Supabase getMandate: ${error.message}`);
+  if (!data) throw new Error(`Mandate ${id} not found`);
+  return toMandate(data);
+}
+
+function assertLimits(limits: MandateLimitPatch) {
+  for (const [key, value] of Object.entries(limits) as [keyof MandateLimitPatch, number][]) {
+    if (!Number.isFinite(value) || value <= 0) throw new Error(`${key} must be a positive number`);
+  }
+}
+
+export async function updateMandateLimits(id: string, limits: MandateLimitPatch): Promise<Mandate> {
+  assertLimits(limits);
+  if (mocks.db) {
+    if (id !== mockMandate.id) throw new Error(`Mandate ${id} not found`);
+    mockMandate = { ...mockMandate, ...limits };
+    return { ...mockMandate };
+  }
+  const { data, error } = await sb()
+    .from("mandates")
+    .update({
+      weekly_budget: limits.weeklyBudget,
+      per_order_cap: limits.perOrderCap,
+      ask_above: limits.askAbove,
+    })
+    .eq("id", id)
+    .select("*")
+    .maybeSingle();
+  if (error) throw new Error(`Supabase updateMandateLimits: ${error.message}`);
   if (!data) throw new Error(`Mandate ${id} not found`);
   return toMandate(data);
 }
