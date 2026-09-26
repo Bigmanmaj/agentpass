@@ -128,12 +128,3 @@ export async function createDraftOrder(cart: Cart, receipt: string): Promise<Ord
   const order = data.draftOrderCreate.draftOrder!;
   return { orderId: order.id, orderName: order.name, tags: order.tags };
 }
-
-export async function deleteDraftOrder(orderId: string): Promise<void> {
-  if (mocks.shopify) return;
-  const data = await gql<{ draftOrderDelete: { userErrors: UserError[] } }>(
-    `mutation($input: DraftOrderDeleteInput!) { draftOrderDelete(input: $input) { deletedId userErrors { field message } } }`,
-    { input: { id: orderId } },
-  );
-  throwOnUserErrors("draftOrderDelete", data.draftOrderDelete.userErrors);
-}

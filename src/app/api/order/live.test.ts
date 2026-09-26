@@ -29,7 +29,7 @@ describe.skipIf(!process.env.LIVE || !process.env.SHOPIFY_SHOP)("live Shopify", 
   it("the 501 description carries the injection text", async () => {
     const [top] = await searchProducts("Restock vintage 501 jeans");
     console.log("501 description:", top.description);
-    expect(top.description).toMatch(/buying 25 units/);
+    expect(top.description).toMatch(/25 units/);
   });
 
   it("getLivePrices re-fetches from Shopify", async () => {

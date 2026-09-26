@@ -1,5 +1,5 @@
 // OWNER: P2. Creates the demo products from data/products.json in the Shopify dev store.
-// Run: node --env-file=.env.local scripts/seed-shopify.ts   (idempotent: skips existing titles)
+// Run: node --env-file=.env.local scripts/seed-shopify.ts   (idempotent: updates existing titles in place)
 import { readFileSync } from "node:fs";
 
 type SeedProduct = { title: string; category: string; vendor: string; price: number; description: string };
@@ -41,42 +41,42 @@ function assertNoUserErrors(label: string, errs: { field?: string[]; message: st
 const products = JSON.parse(readFileSync(new URL("../data/products.json", import.meta.url), "utf8")) as SeedProduct[];
 const token = await getToken();
 
-const existing = await gql<{ products: { nodes: { title: string }[] } }>(
+type ProductRef = { id: string; variants: { nodes: { id: string }[] } };
+type UserErrors = { field?: string[]; message: string }[];
+
+const existing = await gql<{ products: { nodes: (ProductRef & { title: string })[] } }>(
   token,
-  `{ products(first: 100, query: "tag:agentpass-seed") { nodes { title } } }`,
+  `{ products(first: 100, query: "tag:agentpass-seed") { nodes { id title variants(first: 1) { nodes { id } } } } }`,
 );
-const have = new Set(existing.products.nodes.map((p) => p.title));
+const byTitle = new Map(existing.products.nodes.map((p) => [p.title, p]));
 
 for (const p of products) {
-  if (have.has(p.title)) {
-    console.log(`skip   ${p.title}`);
-    continue;
+  const fields = { descriptionHtml: p.description, productType: p.category, vendor: p.vendor };
+  let product: ProductRef | undefined = byTitle.get(p.title);
+  if (product) {
+    const updatedProduct = await gql<{ productUpdate: { userErrors: UserErrors } }>(
+      token,
+      `mutation($product: ProductUpdateInput!) { productUpdate(product: $product) { userErrors { field message } } }`,
+      { product: { id: product.id, ...fields } },
+    );
+    assertNoUserErrors(`productUpdate ${p.title}`, updatedProduct.productUpdate.userErrors);
+  } else {
+    const created = await gql<{ productCreate: { product: ProductRef | null; userErrors: UserErrors } }>(
+      token,
+      `mutation($product: ProductCreateInput!) {
+        productCreate(product: $product) {
+          product { id variants(first: 1) { nodes { id } } }
+          userErrors { field message }
+        }
+      }`,
+      { product: { title: p.title, ...fields, tags: ["agentpass-seed"], status: "ACTIVE" } },
+    );
+    assertNoUserErrors(`productCreate ${p.title}`, created.productCreate.userErrors);
+    product = created.productCreate.product!;
   }
-  const created = await gql<{
-    productCreate: { product: { id: string; variants: { nodes: { id: string }[] } } | null; userErrors: { field?: string[]; message: string }[] };
-  }>(
-    token,
-    `mutation($product: ProductCreateInput!) {
-      productCreate(product: $product) {
-        product { id variants(first: 1) { nodes { id } } }
-        userErrors { field message }
-      }
-    }`,
-    {
-      product: {
-        title: p.title,
-        descriptionHtml: p.description,
-        productType: p.category,
-        vendor: p.vendor,
-        tags: ["agentpass-seed"],
-        status: "ACTIVE",
-      },
-    },
-  );
-  assertNoUserErrors(`productCreate ${p.title}`, created.productCreate.userErrors);
-  const product = created.productCreate.product!;
+  if (!product) throw new Error(`No product for ${p.title}`);
 
-  const updated = await gql<{ productVariantsBulkUpdate: { userErrors: { field?: string[]; message: string }[] } }>(
+  const updated = await gql<{ productVariantsBulkUpdate: { userErrors: UserErrors } }>(
     token,
     `mutation($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
       productVariantsBulkUpdate(productId: $productId, variants: $variants) { userErrors { field message } }
@@ -84,5 +84,5 @@ for (const p of products) {
     { productId: product.id, variants: [{ id: product.variants.nodes[0].id, price: p.price.toFixed(2) }] },
   );
   assertNoUserErrors(`price ${p.title}`, updated.productVariantsBulkUpdate.userErrors);
-  console.log(`create ${p.title} £${p.price} -> ${product.id}`);
+  console.log(`${byTitle.has(p.title) ? "update" : "create"} ${p.title} £${p.price} -> ${product.id}`);
 }
