@@ -6,6 +6,8 @@ export const env = {
   llmBaseUrl: process.env.LLM_BASE_URL || "https://api.x.ai/v1",
   llmApiKey: process.env.LLM_API_KEY || "",
   llmModel: process.env.LLM_MODEL || "grok-4.7",
+  // Cursor SDK: runs Grok with a crsr_ key from the Cursor dashboard (takes priority over LLM_*)
+  cursorApiKey: process.env.CURSOR_API_KEY || "",
 
   shopifyShop: process.env.SHOPIFY_SHOP || "",
   shopifyClientId: process.env.SHOPIFY_CLIENT_ID || "",
@@ -24,7 +26,7 @@ export const env = {
 };
 
 export const mocks = {
-  llm: !env.llmApiKey,
+  llm: !env.llmApiKey && !env.cursorApiKey,
   shopify: !env.shopifyShop || !env.shopifyClientId,
   db: !env.supabaseUrl,
   analytics: !env.posthogKey,
