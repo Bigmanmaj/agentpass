@@ -1,62 +1,40 @@
-"use client";
-// OWNER: P3. Bare-bones flow so everyone can test end to end. P3 replaces the look.
-import { useState } from "react";
-import type { AgentResponse, ApproveResponse, GateResponse, OrderResponse } from "@/lib/types";
+// OWNER: P3. Home — one idea, one diagram, one button.
+import Link from "next/link";
+import { connection } from "next/server";
+import { FadeIn } from "@/components/fade-in";
+import { FlowDiagram } from "@/components/flow-diagram";
+import { MandatePanel } from "@/components/mandate-panel";
+import { getMandate, spentThisWeek } from "@/lib/db";
 
-const post = async <T,>(url: string, body: unknown): Promise<T> =>
-  (await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
+export const metadata = { title: "Home" };
 
-export default function Home() {
-  const [message, setMessage] = useState("Restock 4 denim jackets");
-  const [log, setLog] = useState<string[]>([]);
-  const [pending, setPending] = useState<{ token: string; agent: AgentResponse } | null>(null);
-  const add = (line: string) => setLog((l) => [...l, line]);
-
-  async function order(agent: AgentResponse, receipt: string) {
-    const o = await post<OrderResponse>("/api/order", { cart: agent.cart, receipt });
-    add(`🧾 Shopify order ${o.orderName} [${o.tags?.join(", ")}]`);
-  }
-
-  async function run() {
-    add(`👤 ${message}`);
-    const agent = await post<AgentResponse>("/api/agent", { message, mandateId: "demo" });
-    add(`🤖 ${agent.reply}`);
-    if (!agent.cart) return;
-    const gate = await post<GateResponse>("/api/gate", { cart: agent.cart, mandateId: "demo" });
-    add(`🛡️ ${gate.decision}: ${gate.reasons.join("; ")} (checked £${gate.checkedTotal})`);
-    if (gate.receipt) await order(agent, gate.receipt);
-    if (gate.approvalToken) setPending({ token: gate.approvalToken, agent });
-  }
-
-  async function answer(approved: boolean) {
-    if (!pending) return;
-    const r = await post<ApproveResponse>("/api/approve", { approvalToken: pending.token, approved });
-    add(`📱 Sara said ${approved ? "YES" : "NO"}`);
-    if (r.receipt) await order(pending.agent, r.receipt);
-    setPending(null);
-  }
+export default async function Home() {
+  await connection();
+  const mandate = await getMandate("demo");
+  const spent = await spentThisWeek(mandate.id);
 
   return (
-    <main className="mx-auto max-w-xl p-6 font-sans">
-      <h1 className="text-2xl font-bold">AgentPass</h1>
-      <p className="mb-4 text-sm opacity-70">Mandate: Sara — £500/week, cap £300, ask above £200, denim & outerwear</p>
-      <div className="flex gap-2">
-        <input className="flex-1 rounded border px-3 py-2" value={message} onChange={(e) => setMessage(e.target.value)} />
-        <button className="rounded bg-black px-4 py-2 text-white" onClick={run}>Send</button>
-      </div>
-      <div className="mt-2 flex gap-2 text-xs">
-        {["Restock 4 denim jackets", "Restock 6 denim jackets", "Restock vintage 501 jeans"].map((s) => (
-          <button key={s} className="rounded border px-2 py-1" onClick={() => setMessage(s)}>{s}</button>
-        ))}
-      </div>
-      {pending && (
-        <div className="mt-4 rounded border border-green-600 p-3">
-          📱 WhatsApp to Sara: approve £{pending.agent.cart?.total}?
-          <button className="ml-2 rounded bg-green-600 px-2 text-white" onClick={() => answer(true)}>Yes</button>
-          <button className="ml-2 rounded bg-red-600 px-2 text-white" onClick={() => answer(false)}>No</button>
+    <main className="mx-auto w-full max-w-3xl px-4 py-8 pb-16 sm:px-6 sm:py-12">
+      <FadeIn>
+        <h1 className="max-w-xl text-[clamp(2.2rem,7vw,3.6rem)]">
+          Nothing is bought until AgentPass says it is allowed.
+        </h1>
+        <div className="mt-5">
+          <MandatePanel key={`${mandate.weeklyBudget}-${mandate.perOrderCap}-${mandate.askAbove}`} mandate={mandate} spent={spent} />
         </div>
-      )}
-      <ul className="mt-4 space-y-1 text-sm">{log.map((l, i) => <li key={i}>{l}</li>)}</ul>
+        <div className="mt-6">
+          <Link href="/checkout" className="btn btn-accent">
+            Try it
+          </Link>
+        </div>
+      </FadeIn>
+
+      <section className="mt-10 sm:mt-12" aria-labelledby="flow-title">
+        <h2 id="flow-title" className="sr-only">
+          How it works
+        </h2>
+        <FlowDiagram />
+      </section>
     </main>
   );
 }

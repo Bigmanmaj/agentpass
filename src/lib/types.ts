@@ -71,3 +71,12 @@ export type ApproveResponse = { receipt?: string; decision: Decision };
 // POST /api/order
 export type OrderRequest = { cart: Cart; receipt: string };
 export type OrderResponse = { orderId: string; orderName: string; tags: string[] };
+
+// PATCH /api/mandate — change spending limits (Gate still decides)
+export type MandateLimits = {
+  weeklyBudget: number;
+  perOrderCap: number;
+  askAbove: number;
+};
+export type MandateUpdateRequest = { mandateId: string } & MandateLimits;
+export type MandateUpdateResponse = { mandate: Mandate };

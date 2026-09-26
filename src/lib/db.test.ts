@@ -1,18 +1,43 @@
 // OWNER: P1. Runs in mock mode (no SUPABASE_URL in tests); row mappers cover the Supabase shape.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  DEMO_MANDATE, getMandate, listDecisions, logDecision, markOrdered, setOrderId, spentThisWeek, toDecisionRow, toMandate,
+  DEMO_MANDATE,
+  getMandate,
+  listDecisions,
+  logDecision,
+  markOrdered,
+  resetMockMandate,
+  setOrderId,
+  spentThisWeek,
+  toDecisionRow,
+  toMandate,
+  updateMandateLimits,
 } from "./db";
 
 const cart = { items: [], total: 0 };
 const log = (mandateId: string, total: number) =>
   logDecision({ mandateId, cart, total, decision: "APPROVE", reasons: ["Within all limits"] });
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  resetMockMandate();
+});
 
 describe("db (mock mode)", () => {
   it("returns the demo mandate", async () => {
     expect(await getMandate("demo")).toEqual(DEMO_MANDATE);
+  });
+
+  it("updates the spending limits", async () => {
+    const next = await updateMandateLimits("demo", { weeklyBudget: 800, perOrderCap: 400, askAbove: 250 });
+    expect(next.weeklyBudget).toBe(800);
+    expect(next.perOrderCap).toBe(400);
+    expect(next.askAbove).toBe(250);
+    expect(await getMandate("demo")).toEqual(next);
+  });
+
+  it("rejects non-positive limits", async () => {
+    await expect(updateMandateLimits("demo", { weeklyBudget: 0, perOrderCap: 300, askAbove: 200 })).rejects.toThrow(/positive/i);
   });
 
   it("counts only ordered decisions of this mandate from the last 7 days", async () => {
