@@ -22,7 +22,10 @@ async function getToken(): Promise<string> {
     }),
     cache: "no-store",
   });
-  if (!res.ok) throw new Error(`Shopify token request failed: ${res.status} ${await res.text()}`);
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Shopify token request failed: ${res.status} ${/<title>([\s\S]*?)<\/title>/.exec(text)?.[1] ?? text.slice(0, 300)}`);
+  }
   const json = (await res.json()) as { access_token: string; expires_in?: number };
   const ttlSeconds = json.expires_in ?? 86_400;
   cachedToken = { value: json.access_token, expiresAt: Date.now() + (ttlSeconds - 300) * 1000 };

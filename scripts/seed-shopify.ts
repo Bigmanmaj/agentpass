@@ -16,7 +16,10 @@ async function getToken(): Promise<string> {
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ grant_type: "client_credentials", client_id: clientId!, client_secret: clientSecret! }),
   });
-  if (!res.ok) throw new Error(`Token request failed: ${res.status} ${await res.text()}`);
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Token request failed: ${res.status} ${/<title>([\s\S]*?)<\/title>/.exec(text)?.[1] ?? text.slice(0, 300)}`);
+  }
   return ((await res.json()) as { access_token: string }).access_token;
 }
 
